@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VetÉsia · Productos veterinarios y uniformidad personalizable</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="navbar-holder"></div>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container text-center">
+      <h1>Todo para tu mascota y tu trabajo</h1>
+      <p class="lead">Productos veterinarios de calidad y uniformidad técnica personalizable. Pedido fácil, entrega en 24-72h.</p>
+      <a href="/pages/catalogo.html" class="btn btn-light btn-lg mt-3">Ver catálogo</a>
+    </div>
+  </section>
+
+  <!-- CATEGORÍAS DESTACADAS -->
+  <section class="container mb-5">
+    <h2 class="text-center mb-4" style="color: var(--azul-verdoso-oscuro)">Explora por categoría</h2>
+    <div id="categorias-grid" class="text-center"></div>
+  </section>
+
+  <!-- PRODUCTOS DESTACADOS -->
+  <section class="container mb-5">
+    <h2 class="text-center mb-4" style="color: var(--azul-verdoso-oscuro)">Productos destacados</h2>
+    <div id="productos-destacados" class="row g-3"></div>
+    <div class="text-center mt-4">
+      <a href="/pages/catalogo.html" class="btn btn-vetesia btn-lg">Ver todo el catálogo →</a>
+    </div>
+  </section>
+
+  <!-- POR QUÉ ELEGIRNOS -->
+  <section class="container mb-5">
+    <div class="row text-center">
+      <div class="col-md-4">
+        <div style="font-size: 2.5rem">🚚</div>
+        <h5 class="mt-2">Envío rápido</h5>
+        <p class="text-muted small">Entrega en 24-72h en toda España.</p>
+      </div>
+      <div class="col-md-4">
+        <div style="font-size: 2.5rem">✨</div>
+        <h5 class="mt-2">Personalización</h5>
+        <p class="text-muted small">Uniformidad técnica con DTG o bordado.</p>
+      </div>
+      <div class="col-md-4">
+        <div style="font-size: 2.5rem">🔒</div>
+        <h5 class="mt-2">Pago seguro</h5>
+        <p class="text-muted small">Procesamos pagos con Stripe.</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="footer-holder"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/cart.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/layout.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Cargar categorías
+      try {
+        const categorias = await VETESIA.api.get('/categorias');
+        const grid = document.getElementById('categorias-grid');
+        grid.innerHTML = categorias.map(c => `
+          <a href="/pages/catalogo.html?categoria=${c.id}" class="categoria-chip">
+            ${VETESIA.ui.escapeHtml(c.nombre)}
+          </a>
+        `).join('');
+      } catch (e) {
+        console.error('Error cargando categorías', e);
+      }
+
+      // Cargar productos destacados (los 8 más recientes)
+      try {
+        const productos = await VETESIA.api.get('/productos?orden=novedades');
+        const grid = document.getElementById('productos-destacados');
+        const destacados = productos.slice(0, 8);
+        grid.innerHTML = destacados.map(p => renderProducto(p)).join('');
+      } catch (e) {
+        document.getElementById('productos-destacados').innerHTML =
+          '<p class="text-center text-muted">No se pudieron cargar los productos.</p>';
+      }
+    });
+
+    function renderProducto(p) {
+      return `
+        <div class="col-6 col-md-3">
+          <a href="/pages/producto.html?id=${p.id}" class="text-decoration-none text-dark">
+            <div class="card-producto p-2">
+              <img src="${p.imagen_url || '/img/placeholder.png'}"
+                   onerror="this.src='/img/placeholder.png'"
+                   class="card-img-top" alt="${VETESIA.ui.escapeHtml(p.nombre)}">
+              <div class="card-body p-2">
+                <span class="tipo-tag tipo-${p.tipo}">${p.tipo}</span>
+                <h6 class="mt-2 mb-1">${VETESIA.ui.escapeHtml(p.nombre)}</h6>
+                <div class="small text-muted">${VETESIA.ui.estrellas(p.valoracion_media)} (${p.num_resenas})</div>
+                <div class="precio mt-1">${VETESIA.ui.precio(p.precio_base)}</div>
+              </div>
+            </div>
+          </a>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catálogo · VetÉsia</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="navbar-holder"></div>
+
+  <div class="container my-4">
+    <h1 class="mb-4" style="color: var(--azul-verdoso-oscuro)">Catálogo</h1>
+
+    <div class="row">
+      <!-- Sidebar filtros -->
+      <aside class="col-md-3 mb-4">
+        <div class="sidebar-filtros">
+          <h5>Buscar</h5>
+          <input type="text" id="buscar" class="form-control mb-3" placeholder="Nombre del producto…">
+
+          <h5>Categorías</h5>
+          <div id="filtro-categorias" class="mb-3"></div>
+
+          <h5>Tipo</h5>
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="tipo" id="tipo-todos" value="" checked>
+              <label class="form-check-label" for="tipo-todos">Todos</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="tipo" id="tipo-estandar" value="estandar">
+              <label class="form-check-label" for="tipo-estandar">Productos veterinarios</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="tipo" id="tipo-personalizable" value="personalizable">
+              <label class="form-check-label" for="tipo-personalizable">Uniformidad personalizable</label>
+            </div>
+          </div>
+
+          <h5>Ordenar por</h5>
+          <select id="orden" class="form-select">
+            <option value="">Nombre</option>
+            <option value="precio_asc">Precio: menor a mayor</option>
+            <option value="precio_desc">Precio: mayor a menor</option>
+            <option value="novedades">Más recientes</option>
+          </select>
+        </div>
+      </aside>
+
+      <!-- Resultados -->
+      <main class="col-md-9">
+        <p class="text-muted small mb-3"><span id="num-resultados">0</span> productos</p>
+        <div id="productos-grid" class="row g-3"></div>
+      </main>
+    </div>
+  </div>
+
+  <div id="footer-holder"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/cart.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/layout.js"></script>
+  <script>
+    let categoriaId = VETESIA.ui.queryParam('categoria') || '';
+    let busqueda = '';
+    let tipo = '';
+    let orden = '';
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await cargarCategorias();
+      await cargarProductos();
+
+      document.getElementById('buscar').addEventListener('input', e => {
+        busqueda = e.target.value;
+        clearTimeout(window._tmrBuscar);
+        window._tmrBuscar = setTimeout(cargarProductos, 300);
+      });
+
+      document.querySelectorAll('input[name="tipo"]').forEach(r => {
+        r.addEventListener('change', e => { tipo = e.target.value; cargarProductos(); });
+      });
+
+      document.getElementById('orden').addEventListener('change', e => {
+        orden = e.target.value;
+        cargarProductos();
+      });
+    });
+
+    async function cargarCategorias() {
+      try {
+        const cats = await VETESIA.api.get('/categorias');
+        const cont = document.getElementById('filtro-categorias');
+        cont.innerHTML = `
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="categoria" id="cat-todas" value="" ${!categoriaId ? 'checked' : ''}>
+            <label class="form-check-label" for="cat-todas">Todas</label>
+          </div>
+        ` + cats.map(c => `
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="categoria" id="cat-${c.id}" value="${c.id}" ${String(c.id) === String(categoriaId) ? 'checked' : ''}>
+            <label class="form-check-label" for="cat-${c.id}">${VETESIA.ui.escapeHtml(c.nombre)}</label>
+          </div>
+        `).join('');
+
+        cont.querySelectorAll('input[name="categoria"]').forEach(r => {
+          r.addEventListener('change', e => { categoriaId = e.target.value; cargarProductos(); });
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function cargarProductos() {
+      const grid = document.getElementById('productos-grid');
+      VETESIA.ui.cargando(grid);
+      try {
+        let url = '/productos?';
+        if (categoriaId) url += `categoria_id=${categoriaId}&`;
+        if (busqueda) url += `q=${encodeURIComponent(busqueda)}&`;
+        if (tipo) url += `tipo=${tipo}&`;
+        if (orden) url += `orden=${orden}&`;
+
+        const productos = await VETESIA.api.get(url);
+        document.getElementById('num-resultados').textContent = productos.length;
+
+        if (productos.length === 0) {
+          grid.innerHTML = '<div class="col-12"><div class="alert alert-info">No hay productos que coincidan con los filtros.</div></div>';
+          return;
+        }
+
+        grid.innerHTML = productos.map(p => `
+          <div class="col-6 col-md-4 col-lg-3">
+            <a href="/pages/producto.html?id=${p.id}" class="text-decoration-none text-dark">
+              <div class="card-producto p-2">
+                <img src="${p.imagen_url || '/img/placeholder.png'}"
+                     onerror="this.src='/img/placeholder.png'"
+                     class="card-img-top" alt="${VETESIA.ui.escapeHtml(p.nombre)}">
+                <div class="card-body p-2">
+                  <span class="tipo-tag tipo-${p.tipo}">${p.tipo}</span>
+                  <h6 class="mt-2 mb-1">${VETESIA.ui.escapeHtml(p.nombre)}</h6>
+                  <div class="small text-muted mb-2">${VETESIA.ui.estrellas(p.valoracion_media)} (${p.num_resenas})</div>
+                  <div class="d-flex justify-content-between align-items-end">
+                    <div class="precio">${VETESIA.ui.precio(p.precio_base)}</div>
+                    ${VETESIA.ui.stockInfo(p.stock)}
+                  </div>
+                </div>
+              </div>
+            </a>
+          </div>
+        `).join('');
+      } catch (e) {
+        grid.innerHTML = `<div class="col-12"><div class="alert alert-danger">${e.message}</div></div>`;
+      }
+    }
+  </script>
+</body>
+</html>

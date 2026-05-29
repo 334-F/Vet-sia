@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mis direcciones · VetÉsia</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="navbar-holder"></div>
+
+  <div class="container my-4">
+    <h1 class="mb-4" style="color: var(--azul-verdoso-oscuro)">Mis direcciones</h1>
+    <div class="row">
+      <div class="col-md-3 mb-3">
+        <div class="list-group">
+          <a href="/pages/mi-cuenta.html" class="list-group-item list-group-item-action">Datos personales</a>
+          <a href="/pages/mis-pedidos.html" class="list-group-item list-group-item-action">Mis pedidos</a>
+          <a href="/pages/mis-direcciones.html" class="list-group-item list-group-item-action active">Direcciones</a>
+          <a href="#" class="list-group-item list-group-item-action text-danger" onclick="VETESIA.auth.logout(); return false;">Cerrar sesión</a>
+        </div>
+      </div>
+      <div class="col-md-9">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h4>Direcciones de envío</h4>
+          <button class="btn btn-vetesia" data-bs-toggle="modal" data-bs-target="#modal-direccion">+ Nueva dirección</button>
+        </div>
+        <div id="direcciones-lista"></div>
+        <div id="next-info" style="display:none" class="alert alert-info mt-3">
+          Cuando termines, <a id="next-link" href="#">vuelve al checkout</a>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de dirección -->
+  <div class="modal fade" id="modal-direccion" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Nueva dirección</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="form-direccion">
+          <div class="modal-body">
+            <input type="hidden" id="dir-id">
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Alias *</label>
+                <input type="text" id="alias" class="form-control" placeholder="Casa, Trabajo…" required>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Destinatario *</label>
+                <input type="text" id="destinatario" class="form-control" required>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-md-8 mb-3">
+                <label class="form-label">Calle *</label>
+                <input type="text" id="calle" class="form-control" required>
+              </div>
+              <div class="col-md-2 mb-3">
+                <label class="form-label">Número</label>
+                <input type="text" id="numero" class="form-control">
+              </div>
+              <div class="col-md-2 mb-3">
+                <label class="form-label">Piso</label>
+                <input type="text" id="piso" class="form-control">
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-md-3 mb-3">
+                <label class="form-label">CP *</label>
+                <input type="text" id="codigo_postal" class="form-control" required>
+              </div>
+              <div class="col-md-5 mb-3">
+                <label class="form-label">Municipio *</label>
+                <input type="text" id="municipio" class="form-control" required>
+              </div>
+              <div class="col-md-4 mb-3">
+                <label class="form-label">Provincia *</label>
+                <input type="text" id="provincia" class="form-control" required>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Teléfono de contacto</label>
+              <input type="tel" id="telefono_contacto" class="form-control">
+            </div>
+            <div class="form-check">
+              <input type="checkbox" id="predeterminada" class="form-check-input">
+              <label class="form-check-label" for="predeterminada">Marcar como predeterminada</label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" class="btn btn-vetesia">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="footer-holder"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/cart.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/layout.js"></script>
+  <script>
+    let modal;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      if (!VETESIA.auth.requireAuth()) return;
+      modal = new bootstrap.Modal(document.getElementById('modal-direccion'));
+
+      const next = VETESIA.ui.queryParam('next');
+      if (next) {
+        document.getElementById('next-link').href = next;
+        document.getElementById('next-info').style.display = 'block';
+      }
+
+      cargarDirecciones();
+
+      document.getElementById('form-direccion').addEventListener('submit', guardar);
+    });
+
+    async function cargarDirecciones() {
+      const cont = document.getElementById('direcciones-lista');
+      VETESIA.ui.cargando(cont);
+      try {
+        const dirs = await VETESIA.api.get('/direcciones');
+        if (dirs.length === 0) {
+          cont.innerHTML = '<div class="alert alert-info">Aún no tienes ninguna dirección guardada.</div>';
+          return;
+        }
+        cont.innerHTML = dirs.map(d => `
+          <div class="card mb-2">
+            <div class="card-body">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <strong>${VETESIA.ui.escapeHtml(d.alias)}</strong>
+                  ${d.predeterminada ? '<span class="badge bg-success ms-2">Predeterminada</span>' : ''}
+                  <br>${VETESIA.ui.escapeHtml(d.destinatario)}
+                  <br><small class="text-muted">${VETESIA.ui.escapeHtml(d.calle)} ${d.numero || ''} ${d.piso || ''}, ${d.codigo_postal} ${d.municipio} (${d.provincia})</small>
+                </div>
+                <div>
+                  <button class="btn btn-sm btn-outline-secondary" onclick='editar(${JSON.stringify(d)})'>Editar</button>
+                  <button class="btn btn-sm btn-outline-danger" onclick="borrar(${d.id})">Eliminar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        cont.innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
+      }
+    }
+
+    function editar(d) {
+      document.getElementById('dir-id').value = d.id;
+      document.getElementById('alias').value = d.alias || '';
+      document.getElementById('destinatario').value = d.destinatario || '';
+      document.getElementById('calle').value = d.calle || '';
+      document.getElementById('numero').value = d.numero || '';
+      document.getElementById('piso').value = d.piso || '';
+      document.getElementById('codigo_postal').value = d.codigo_postal || '';
+      document.getElementById('municipio').value = d.municipio || '';
+      document.getElementById('provincia').value = d.provincia || '';
+      document.getElementById('telefono_contacto').value = d.telefono_contacto || '';
+      document.getElementById('predeterminada').checked = !!d.predeterminada;
+      modal.show();
+    }
+
+    async function guardar(e) {
+      e.preventDefault();
+      const id = document.getElementById('dir-id').value;
+      const payload = {
+        alias: document.getElementById('alias').value.trim(),
+        destinatario: document.getElementById('destinatario').value.trim(),
+        calle: document.getElementById('calle').value.trim(),
+        numero: document.getElementById('numero').value.trim() || null,
+        piso: document.getElementById('piso').value.trim() || null,
+        codigo_postal: document.getElementById('codigo_postal').value.trim(),
+        municipio: document.getElementById('municipio').value.trim(),
+        provincia: document.getElementById('provincia').value.trim(),
+        telefono_contacto: document.getElementById('telefono_contacto').value.trim() || null,
+        predeterminada: document.getElementById('predeterminada').checked,
+      };
+      try {
+        if (id) {
+          await VETESIA.api.patch(`/direcciones/${id}`, payload);
+        } else {
+          await VETESIA.api.post('/direcciones', payload);
+        }
+        modal.hide();
+        document.getElementById('form-direccion').reset();
+        document.getElementById('dir-id').value = '';
+        VETESIA.ui.toast('Dirección guardada', 'success');
+        cargarDirecciones();
+      } catch (err) {
+        VETESIA.ui.toast(err.message, 'error');
+      }
+    }
+
+    async function borrar(id) {
+      if (!confirm('¿Eliminar esta dirección?')) return;
+      try {
+        await VETESIA.api.delete(`/direcciones/${id}`);
+        VETESIA.ui.toast('Dirección eliminada', 'success');
+        cargarDirecciones();
+      } catch (e) {
+        VETESIA.ui.toast(e.message, 'error');
+      }
+    }
+  </script>
+</body>
+</html>

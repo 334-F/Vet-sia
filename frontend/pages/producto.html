@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Producto · VetÉsia</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="navbar-holder"></div>
+
+  <div class="container my-4" id="producto-container">
+    <div class="text-center py-5"><div class="spinner-vetesia"></div></div>
+  </div>
+
+  <div id="footer-holder"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/cart.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/layout.js"></script>
+  <script>
+    const productoId = VETESIA.ui.queryParam('id');
+    let producto = null;
+    let tiposServicio = [];
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      if (!productoId) {
+        window.location.href = '/pages/catalogo.html';
+        return;
+      }
+
+      try {
+        producto = await VETESIA.api.get(`/productos/${productoId}`);
+
+        if (producto.tipo === 'personalizable') {
+          tiposServicio = await VETESIA.api.get('/pedidos/tipos-servicio');
+        }
+
+        renderProducto();
+      } catch (e) {
+        document.getElementById('producto-container').innerHTML =
+          `<div class="alert alert-danger">${e.message}</div>`;
+      }
+    });
+
+    function renderProducto() {
+      const personalizable = producto.tipo === 'personalizable';
+      const html = `
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/">Inicio</a></li>
+            <li class="breadcrumb-item"><a href="/pages/catalogo.html">Catálogo</a></li>
+            <li class="breadcrumb-item active">${VETESIA.ui.escapeHtml(producto.nombre)}</li>
+          </ol>
+        </nav>
+
+        <div class="row">
+          <div class="col-md-5 mb-3">
+            <img src="${producto.imagen_url || '/img/placeholder.png'}"
+                 onerror="this.src='/img/placeholder.png'"
+                 class="img-fluid bg-light rounded p-3" alt="${VETESIA.ui.escapeHtml(producto.nombre)}">
+          </div>
+          <div class="col-md-7">
+            <span class="tipo-tag tipo-${producto.tipo}">${producto.tipo}</span>
+            <h1 class="mt-2">${VETESIA.ui.escapeHtml(producto.nombre)}</h1>
+            <p class="text-muted small mb-2">${producto.categoria_nombre || ''}</p>
+            <div class="mb-3">
+              ${VETESIA.ui.estrellas(producto.valoracion_media)}
+              <span class="text-muted small">(${producto.num_resenas} reseñas)</span>
+            </div>
+            <div class="precio mb-3" style="font-size: 2rem; color: var(--azul-verdoso-oscuro); font-weight: 700">
+              ${VETESIA.ui.precio(producto.precio_base)}
+            </div>
+            ${VETESIA.ui.stockInfo(producto.stock)}
+
+            <p class="mt-3">${VETESIA.ui.escapeHtml(producto.descripcion || '')}</p>
+
+            ${producto.precios_escalados.length > 0 ? `
+              <div class="alert alert-info py-2">
+                <strong>💰 Descuento por volumen:</strong>
+                <ul class="mb-0 mt-1 small">
+                  ${producto.precios_escalados.map(pe => `
+                    <li>${pe.cantidad_min}${pe.cantidad_max ? '-' + pe.cantidad_max : '+'} uds: ${VETESIA.ui.precio(pe.precio_unitario)} / unidad</li>
+                  `).join('')}
+                </ul>
+              </div>
+            ` : ''}
+
+            <!-- Formulario de añadir al carrito -->
+            <form id="form-anadir" class="mt-4">
+              ${personalizable ? `
+                <h5>Personalización</h5>
+                <div class="mb-3">
+                  <label class="form-label">Servicio:</label>
+                  <select id="tipo-servicio" class="form-select" required>
+                    ${tiposServicio.map(t => `
+                      <option value="${t.id}" data-extra="${t.precio_extra}">
+                        ${VETESIA.ui.escapeHtml(t.nombre)} (+${VETESIA.ui.precio(t.precio_extra)})
+                      </option>
+                    `).join('')}
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Texto a estampar/bordar (opcional):</label>
+                  <input type="text" id="personalizacion" class="form-control" placeholder="Ej: Clínica Veterinaria López">
+                </div>
+              ` : ''}
+
+              <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                  <label class="form-label">Cantidad:</label>
+                  <input type="number" id="cantidad" class="form-control" value="1" min="1" max="${producto.stock}">
+                </div>
+                <div class="col-md-9">
+                  <button type="submit" class="btn btn-vetesia btn-lg w-100" ${producto.stock <= 0 ? 'disabled' : ''}>
+                    🛒 Añadir al carrito
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Reseñas -->
+        <hr class="my-5">
+        <h3 style="color: var(--azul-verdoso-oscuro)">Reseñas de clientes</h3>
+        <div id="resenas-lista" class="mt-3">
+          ${producto.resenas && producto.resenas.length > 0
+            ? producto.resenas.map(r => renderResena(r)).join('')
+            : '<p class="text-muted">Aún no hay reseñas verificadas para este producto.</p>'}
+        </div>
+        ${VETESIA.auth.isLoggedIn() ? `
+          <div class="card mt-4">
+            <div class="card-body">
+              <h5>Escribir una reseña</h5>
+              <p class="small text-muted">Solo puedes reseñar productos que hayas comprado.</p>
+              <form id="form-resena">
+                <div class="mb-3">
+                  <label class="form-label">Valoración:</label>
+                  <select id="valoracion" class="form-select" style="max-width: 200px">
+                    <option value="5">★★★★★ (5)</option>
+                    <option value="4">★★★★☆ (4)</option>
+                    <option value="3">★★★☆☆ (3)</option>
+                    <option value="2">★★☆☆☆ (2)</option>
+                    <option value="1">★☆☆☆☆ (1)</option>
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Comentario:</label>
+                  <textarea id="texto-resena" class="form-control" rows="3"></textarea>
+                </div>
+                <button type="submit" class="btn btn-vetesia">Enviar reseña</button>
+              </form>
+            </div>
+          </div>
+        ` : ''}
+      `;
+      document.getElementById('producto-container').innerHTML = html;
+
+      document.getElementById('form-anadir').addEventListener('submit', anadirAlCarrito);
+      const formResena = document.getElementById('form-resena');
+      if (formResena) formResena.addEventListener('submit', enviarResena);
+    }
+
+    function renderResena(r) {
+      return `
+        <div class="resena">
+          ${VETESIA.ui.estrellas(r.valoracion)}
+          <div class="autor">${VETESIA.ui.escapeHtml(r.usuario_nombre || 'Anónimo')}</div>
+          <div class="fecha">${VETESIA.ui.fecha(r.fecha)}</div>
+          ${r.texto ? `<p class="mt-2 mb-0">${VETESIA.ui.escapeHtml(r.texto)}</p>` : ''}
+        </div>
+      `;
+    }
+
+    function anadirAlCarrito(e) {
+      e.preventDefault();
+      const cantidad = parseInt(document.getElementById('cantidad').value, 10);
+      const linea = {
+        producto_id: producto.id,
+        nombre: producto.nombre,
+        imagen_url: producto.imagen_url,
+        precio_base: parseFloat(producto.precio_base),
+        cantidad: cantidad,
+      };
+      if (producto.tipo === 'personalizable') {
+        const sel = document.getElementById('tipo-servicio');
+        const opt = sel.options[sel.selectedIndex];
+        linea.tipo_servicio_id = parseInt(sel.value, 10);
+        linea.tipo_servicio_nombre = opt.text;
+        linea.precio_extra_servicio = parseFloat(opt.dataset.extra);
+        linea.personalizacion = document.getElementById('personalizacion').value;
+      }
+      VETESIA.cart.agregar(linea);
+      VETESIA.ui.toast(`Añadido al carrito: ${producto.nombre}`);
+    }
+
+    async function enviarResena(e) {
+      e.preventDefault();
+      const valoracion = parseInt(document.getElementById('valoracion').value, 10);
+      const texto = document.getElementById('texto-resena').value;
+      try {
+        await VETESIA.api.post('/resenas', {
+          producto_id: parseInt(productoId, 10),
+          valoracion,
+          texto,
+        });
+        VETESIA.ui.toast('Reseña enviada. Se publicará tras la verificación.', 'success');
+        document.getElementById('form-resena').reset();
+      } catch (err) {
+        VETESIA.ui.toast(err.message, 'error');
+      }
+    }
+  </script>
+</body>
+</html>

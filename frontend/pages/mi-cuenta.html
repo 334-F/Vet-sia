@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi cuenta · VetÉsia</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="navbar-holder"></div>
+
+  <div class="container my-4">
+    <h1 class="mb-4" style="color: var(--azul-verdoso-oscuro)">Mi cuenta</h1>
+    <div class="row">
+      <div class="col-md-3 mb-3">
+        <div class="list-group">
+          <a href="/pages/mi-cuenta.html" class="list-group-item list-group-item-action active">Datos personales</a>
+          <a href="/pages/mis-pedidos.html" class="list-group-item list-group-item-action">Mis pedidos</a>
+          <a href="/pages/mis-direcciones.html" class="list-group-item list-group-item-action">Direcciones</a>
+          <a href="#" class="list-group-item list-group-item-action text-danger" onclick="VETESIA.auth.logout(); return false;">Cerrar sesión</a>
+        </div>
+      </div>
+      <div class="col-md-9">
+        <div class="form-vetesia">
+          <h4>Datos personales</h4>
+          <form id="form-perfil">
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Nombre</label>
+                <input type="text" id="nombre" class="form-control">
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Apellidos</label>
+                <input type="text" id="apellidos" class="form-control">
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Email</label>
+              <input type="email" id="email" class="form-control" disabled>
+              <small class="text-muted">El email no se puede modificar.</small>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Teléfono</label>
+                <input type="tel" id="telefono" class="form-control">
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Dirección de contacto</label>
+                <input type="text" id="direccion" class="form-control">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-vetesia">Guardar cambios</button>
+          </form>
+        </div>
+
+        <div class="form-vetesia mt-4">
+          <h4>Cambiar contraseña</h4>
+          <form id="form-password">
+            <div class="mb-3">
+              <label class="form-label">Contraseña actual</label>
+              <input type="password" id="actual" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Nueva contraseña (mín. 8 caracteres)</label>
+              <input type="password" id="nueva" class="form-control" minlength="8" required>
+            </div>
+            <button type="submit" class="btn btn-vetesia">Cambiar contraseña</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="footer-holder"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/cart.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/layout.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      if (!VETESIA.auth.requireAuth()) return;
+      try {
+        const user = await VETESIA.api.get('/usuarios/me');
+        document.getElementById('nombre').value = user.nombre || '';
+        document.getElementById('apellidos').value = user.apellidos || '';
+        document.getElementById('email').value = user.email || '';
+        document.getElementById('telefono').value = user.telefono || '';
+        document.getElementById('direccion').value = user.direccion || '';
+      } catch (e) {
+        VETESIA.ui.toast(e.message, 'error');
+      }
+
+      document.getElementById('form-perfil').addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          const resp = await VETESIA.api.patch('/usuarios/me', {
+            nombre: document.getElementById('nombre').value.trim(),
+            apellidos: document.getElementById('apellidos').value.trim(),
+            telefono: document.getElementById('telefono').value.trim() || null,
+            direccion: document.getElementById('direccion').value.trim() || null,
+          });
+          localStorage.setItem('vetesia_user', JSON.stringify(resp.usuario));
+          VETESIA.ui.toast('Datos actualizados', 'success');
+        } catch (err) {
+          VETESIA.ui.toast(err.message, 'error');
+        }
+      });
+
+      document.getElementById('form-password').addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          await VETESIA.api.patch('/auth/password', {
+            password_actual: document.getElementById('actual').value,
+            password_nueva: document.getElementById('nueva').value,
+          });
+          VETESIA.ui.toast('Contraseña cambiada', 'success');
+          e.target.reset();
+        } catch (err) {
+          VETESIA.ui.toast(err.message, 'error');
+        }
+      });
+    });
+  </script>
+</body>
+</html>
