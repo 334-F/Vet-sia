@@ -18,9 +18,11 @@ class Config:
 
     # Base de datos
     SQLALCHEMY_DATABASE_URI = os.getenv(
-        "DATABASE_URL",
-        "mysql+pymysql://root:root@localhost:3306/vetesia?charset=utf8mb4",
-    )
+    "DATABASE_URL",
+    "sqlite:///vetesia.db",
+)
+# Render usa "postgres://" para PostgreSQL, pero nosotros usaremos SQLite por simplicidad
+# En desarrollo local funciona con MySQL si DATABASE_URL apunta a uno
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True,
