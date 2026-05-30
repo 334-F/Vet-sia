@@ -19,7 +19,22 @@ def create_app(config_name: str = "dev") -> Flask:
     migrate.init_app(app, db)
     jwt.init_app(app)
     mail.init_app(app)
-    cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
+
+    # CORS: parsear el config a lista. Si es "*" o vacio, permite todo.
+    cors_config = app.config.get("CORS_ORIGINS", "*")
+    if isinstance(cors_config, str):
+        if cors_config.strip() in ("", "*"):
+            origins_list = "*"
+        else:
+            origins_list = [o.strip() for o in cors_config.split(",") if o.strip()]
+    else:
+        origins_list = cors_config
+
+    cors.init_app(
+        app,
+        resources={r"/api/*": {"origins": origins_list}},
+        supports_credentials=False,
+    )
 
     # Registrar blueprints (rutas)
     from .routes.auth import auth_bp
