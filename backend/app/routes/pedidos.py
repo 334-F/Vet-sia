@@ -191,17 +191,9 @@ def crear_pedido():
             "Pedido registrado. Se confirmará cuando recibamos tu pago."
         )
 
-    # --- 5. Generar factura y enviar email ---
-    try:
-        ruta_factura = os.path.join(
-            current_app.config["INVOICE_FOLDER"], f"factura_{pedido.id:06d}.pdf"
-        )
-        generar_factura_pdf(pedido, ruta_factura)
-        pedido.factura_url = ruta_factura
-        db.session.commit()
-        enviar_email_confirmacion_pedido(pedido)
-    except Exception as e:
-        current_app.logger.warning(f"No se pudo generar factura/email: {e}")
+    # --- 5. La factura se genera bajo demanda cuando el usuario la descarga,
+    # para no consumir memoria del worker en plan Free de Render.
+    # El endpoint /api/pedidos/<id>/factura se encarga de generarla si no existe.
 
     return jsonify(respuesta), 201
 
