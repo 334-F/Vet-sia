@@ -36,6 +36,100 @@ from ..utils.decorators import admin_required
 pedidos_bp = Blueprint("pedidos", __name__)
 
 
+class PedidoError(Exception):
+    """Error de negocio durante la creación de un pedido (producto sin stock,
+    cantidad inválida, etc.). Lo lanzamos desde el núcleo transaccional para
+    que el rollback y la respuesta HTTP se gestionen en un único sitio."""
+    def __init__(self, mensaje, status=400, extra=None):
+        super().__init__(mensaje)
+        self.mensaje = mensaje
+        self.status = status
+        self.extra = extra or {}
+
+
+def _construir_pedido(usuario, direccion, metodo_pago, zona, lineas_datos, notas):
+    """
+    Núcleo transaccional de creación de pedido, COMPARTIDO por el checkout
+    de cliente registrado y el de invitado.
+
+    Crea el pedido y sus líneas, aplica la CalculadoraPrecios (escalado +
+    promociones + descuento por tipo de cliente) y descuenta stock. NO hace
+    commit: el caller decide cuándo confirmar, de modo que toda la operación
+    es atómica (si algo falla, el caller hace rollback y no queda nada a medias).
+
+    Lanza PedidoError ante cualquier problema de negocio.
+    """
+    pedido = Pedido(
+        usuario_id=usuario.id,
+        direccion_envio_id=direccion.id,
+        metodo_pago_id=metodo_pago.id,
+        zona_envio_id=zona.id,
+        estado="pendiente_pago",
+        coste_envio=zona.coste_envio,
+        notas=notas,
+    )
+    db.session.add(pedido)
+    db.session.flush()  # asignamos id sin commit
+
+    for linea_datos in lineas_datos:
+        producto = Producto.query.get(linea_datos.get("producto_id"))
+        if not producto or not producto.activo:
+            raise PedidoError(f"Producto {linea_datos.get('producto_id')} no disponible")
+
+        cantidad = int(linea_datos.get("cantidad", 1))
+        if cantidad <= 0:
+            raise PedidoError("Cantidad inválida")
+
+        if not producto.verificar_stock(cantidad):
+            raise PedidoError(
+                f"Stock insuficiente para {producto.nombre}",
+                extra={"stock_disponible": producto.stock},
+            )
+
+        tipo_servicio = None
+        if linea_datos.get("tipo_servicio_id"):
+            tipo_servicio = TipoServicio.query.get(linea_datos["tipo_servicio_id"])
+
+        calc = CalculadoraPrecios(producto, cantidad, tipo_servicio, usuario)
+        subtotal = calc.calcular()
+        precio_unitario = calc.detalle["precio_unitario_final"]
+
+        linea = LineaPedido(
+            pedido_id=pedido.id,
+            producto_id=producto.id,
+            tipo_servicio_id=tipo_servicio.id if tipo_servicio else None,
+            cantidad=cantidad,
+            precio_unitario=precio_unitario,
+            personalizacion=linea_datos.get("personalizacion"),
+            archivo_diseno_url=linea_datos.get("archivo_diseno_url"),
+            subtotal=subtotal,
+        )
+        db.session.add(linea)
+        producto.actualizar_stock(-cantidad)
+
+    db.session.flush()
+    db.session.refresh(pedido)
+    pedido.calcular_total()
+    return pedido
+
+
+def _respuesta_pago(pedido, metodo_pago):
+    """Construye la respuesta del checkout (datos del pedido + info de pago).
+    Igual para cliente e invitado."""
+    respuesta = {"pedido": pedido.to_dict(incluir_lineas=True)}
+    if metodo_pago.requiere_pasarela:
+        try:
+            respuesta["pago"] = crear_payment_intent(pedido)
+        except Exception as e:
+            current_app.logger.error(f"Error con Stripe: {e}")
+            respuesta["pago_error"] = "No se pudo iniciar el pago. Inténtalo de nuevo."
+    else:
+        respuesta["mensaje_pago"] = (
+            "Pedido registrado. Se confirmará cuando recibamos tu pago."
+        )
+    return respuesta
+
+
 @pedidos_bp.route("", methods=["GET"])
 @jwt_required()
 def listar_pedidos_usuario():
@@ -107,95 +201,116 @@ def crear_pedido():
     if not zona:
         return jsonify({"error": "Zona de envío no válida"}), 400
 
-    # --- 3. Crear pedido (transacción completa) ---
+    # --- 3. Crear pedido (transacción completa, lógica compartida) ---
     try:
-        pedido = Pedido(
-            usuario_id=usuario_id,
-            direccion_envio_id=direccion.id,
-            metodo_pago_id=metodo_pago.id,
-            zona_envio_id=zona.id,
-            estado="pendiente_pago",
-            coste_envio=zona.coste_envio,
-            notas=datos.get("notas"),
-        )
-        db.session.add(pedido)
-        db.session.flush()  # asignamos id sin commit
-
-        # Crear cada línea aplicando precios
-        for linea_datos in lineas_datos:
-            producto = Producto.query.get(linea_datos.get("producto_id"))
-            if not producto or not producto.activo:
-                db.session.rollback()
-                return jsonify({"error": f"Producto {linea_datos.get('producto_id')} no disponible"}), 400
-
-            cantidad = int(linea_datos.get("cantidad", 1))
-            if cantidad <= 0:
-                db.session.rollback()
-                return jsonify({"error": "Cantidad inválida"}), 400
-
-            if not producto.verificar_stock(cantidad):
-                db.session.rollback()
-                return jsonify({
-                    "error": f"Stock insuficiente para {producto.nombre}",
-                    "stock_disponible": producto.stock
-                }), 400
-
-            tipo_servicio = None
-            if linea_datos.get("tipo_servicio_id"):
-                tipo_servicio = TipoServicio.query.get(linea_datos["tipo_servicio_id"])
-
-            # Calcular precio con la calculadora
-            calc = CalculadoraPrecios(producto, cantidad, tipo_servicio, usuario)
-            subtotal = calc.calcular()
-            precio_unitario = calc.detalle["precio_unitario_final"]
-
-            linea = LineaPedido(
-                pedido_id=pedido.id,
-                producto_id=producto.id,
-                tipo_servicio_id=tipo_servicio.id if tipo_servicio else None,
-                cantidad=cantidad,
-                precio_unitario=precio_unitario,
-                personalizacion=linea_datos.get("personalizacion"),
-                archivo_diseno_url=linea_datos.get("archivo_diseno_url"),
-                subtotal=subtotal,
-            )
-            db.session.add(linea)
-
-            # Restar stock
-            producto.actualizar_stock(-cantidad)
-
-        db.session.flush()  # refrescar relaciones
-        db.session.refresh(pedido)
-
-        # Recalcular totales del pedido
-        pedido.calcular_total()
-
+        pedido = _construir_pedido(usuario, direccion, metodo_pago, zona,
+                                   lineas_datos, datos.get("notas"))
         db.session.commit()
+    except PedidoError as e:
+        db.session.rollback()
+        return jsonify({"error": e.mensaje, **e.extra}), e.status
     except (SQLAlchemyError, ValueError) as e:
         db.session.rollback()
         current_app.logger.error(f"Error al crear pedido: {e}")
         return jsonify({"error": "Error al crear el pedido", "detalle": str(e)}), 500
 
-    # --- 4. Si el método requiere pasarela, crear PaymentIntent en Stripe ---
-    respuesta = {"pedido": pedido.to_dict(incluir_lineas=True)}
-    if metodo_pago.requiere_pasarela:
-        try:
-            datos_pago = crear_payment_intent(pedido)
-            respuesta["pago"] = datos_pago
-        except Exception as e:
-            current_app.logger.error(f"Error con Stripe: {e}")
-            respuesta["pago_error"] = "No se pudo iniciar el pago. Inténtalo de nuevo."
-    else:
-        # Para transferencia/contrareembolso, el pedido queda pendiente hasta confirmación manual
-        respuesta["mensaje_pago"] = (
-            "Pedido registrado. Se confirmará cuando recibamos tu pago."
+    # --- 4. Respuesta con datos de pago (Stripe si aplica) ---
+    # La factura se genera bajo demanda al descargarla (ver /pedidos/<id>/factura),
+    # para no consumir memoria del worker en el plan Free de Render.
+    return jsonify(_respuesta_pago(pedido, metodo_pago)), 201
+
+
+@pedidos_bp.route("/invitado", methods=["POST"])
+def crear_pedido_invitado():
+    """
+    Checkout como INVITADO (sin cuenta ni login).
+
+    El invitado es uno de los tres perfiles del sistema (invitado / cliente /
+    administrador). En lugar de exigir registro, recogemos sus datos mínimos
+    y una dirección de envío puntual; el sistema crea (o reutiliza, si ya
+    compró antes con ese email) un usuario con rol 'invitado' y sin contraseña.
+    Así reutilizamos intacta la misma transacción atómica de pedido.
+
+    JSON esperado:
+    {
+      "invitado": { "nombre": "...", "apellidos": "...", "email": "...", "telefono": "..." },
+      "envio":    { "destinatario": "...", "calle": "...", "numero": "...", "piso": "...",
+                    "codigo_postal": "...", "municipio": "...", "provincia": "...", "telefono": "..." },
+      "metodo_pago_id": 1, "zona_envio_id": 1, "notas": "...",
+      "lineas": [ { "producto_id": 1, "cantidad": 2, ... } ]
+    }
+    """
+    datos = request.get_json() or {}
+    inv = datos.get("invitado") or {}
+    envio = datos.get("envio") or {}
+
+    # --- 1. Validar datos del invitado y de envío ---
+    falta_inv = [c for c in ("nombre", "apellidos", "email") if not inv.get(c)]
+    if falta_inv:
+        return jsonify({"error": "Faltan datos del invitado", "campos": falta_inv}), 400
+
+    falta_envio = [c for c in ("calle", "codigo_postal", "municipio", "provincia") if not envio.get(c)]
+    if falta_envio:
+        return jsonify({"error": "Faltan datos de envío", "campos": falta_envio}), 400
+
+    lineas_datos = datos.get("lineas")
+    if not isinstance(lineas_datos, list) or len(lineas_datos) == 0:
+        return jsonify({"error": "El pedido debe tener al menos una línea"}), 400
+
+    metodo_pago = MetodoPago.query.filter_by(id=datos.get("metodo_pago_id"), activo=True).first()
+    if not metodo_pago:
+        return jsonify({"error": "Método de pago no disponible"}), 400
+
+    zona = ZonaEnvio.query.filter_by(id=datos.get("zona_envio_id"), activa=True).first()
+    if not zona:
+        return jsonify({"error": "Zona de envío no válida"}), 400
+
+    # --- 2. Buscar o crear el usuario invitado por email ---
+    email = inv["email"].strip().lower()
+    usuario = Usuario.query.filter_by(email=email).first()
+    if usuario and usuario.rol != "invitado":
+        # Ese email ya pertenece a una cuenta real: no la suplantamos.
+        return jsonify({
+            "error": "Ya existe una cuenta con ese email. Inicia sesión para comprar."
+        }), 409
+
+    try:
+        if not usuario:
+            usuario = Usuario(
+                tipo_cliente_id=1,  # Particular por defecto
+                nombre=inv["nombre"], apellidos=inv["apellidos"],
+                email=email, telefono=inv.get("telefono"),
+                rol="invitado", password_hash=None,
+            )
+            db.session.add(usuario)
+            db.session.flush()
+
+        # Dirección de envío puntual para este invitado
+        direccion = DireccionEnvio(
+            usuario_id=usuario.id,
+            alias="Envío invitado",
+            destinatario=envio.get("destinatario") or f"{inv['nombre']} {inv['apellidos']}",
+            calle=envio["calle"], numero=envio.get("numero"), piso=envio.get("piso"),
+            codigo_postal=envio["codigo_postal"], municipio=envio["municipio"],
+            provincia=envio["provincia"],
+            telefono_contacto=envio.get("telefono") or inv.get("telefono"),
+            predeterminada=False,
         )
+        db.session.add(direccion)
+        db.session.flush()
 
-    # --- 5. La factura se genera bajo demanda cuando el usuario la descarga,
-    # para no consumir memoria del worker en plan Free de Render.
-    # El endpoint /api/pedidos/<id>/factura se encarga de generarla si no existe.
+        pedido = _construir_pedido(usuario, direccion, metodo_pago, zona,
+                                   lineas_datos, datos.get("notas"))
+        db.session.commit()
+    except PedidoError as e:
+        db.session.rollback()
+        return jsonify({"error": e.mensaje, **e.extra}), e.status
+    except (SQLAlchemyError, ValueError) as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error al crear pedido invitado: {e}")
+        return jsonify({"error": "Error al crear el pedido", "detalle": str(e)}), 500
 
-    return jsonify(respuesta), 201
+    return jsonify(_respuesta_pago(pedido, metodo_pago)), 201
 
 
 @pedidos_bp.route("/<int:pedido_id>/cancelar", methods=["PATCH"])

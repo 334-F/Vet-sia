@@ -44,10 +44,10 @@ class Usuario(db.Model):
     nombre = db.Column(db.String(100), nullable=False)
     apellidos = db.Column(db.String(150), nullable=False)
     email = db.Column(db.String(150), nullable=False, unique=True, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=True)  # NULL para invitados (compran sin cuenta)
     telefono = db.Column(db.String(15))
     direccion = db.Column(db.String(200))
-    rol = db.Column(db.Enum("cliente", "admin"), nullable=False, default="cliente")
+    rol = db.Column(db.Enum("cliente", "admin", "invitado"), nullable=False, default="cliente")
     fecha_registro = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     activo = db.Column(db.Boolean, nullable=False, default=True)
 
@@ -65,7 +65,13 @@ class Usuario(db.Model):
         self.password_hash = bcrypt.hashpw(plain_password.encode("utf-8"), salt).decode("utf-8")
 
     def check_password(self, plain_password: str) -> bool:
-        """Compara una contraseña en claro con el hash almacenado."""
+        """Compara una contraseña en claro con el hash almacenado.
+
+        Los invitados no tienen contraseña (password_hash = NULL), así que
+        nunca pueden iniciar sesión: devolvemos False directamente.
+        """
+        if not self.password_hash:
+            return False
         return bcrypt.checkpw(
             plain_password.encode("utf-8"),
             self.password_hash.encode("utf-8")
@@ -76,6 +82,10 @@ class Usuario(db.Model):
     @property
     def es_admin(self) -> bool:
         return self.rol == "admin"
+
+    @property
+    def es_invitado(self) -> bool:
+        return self.rol == "invitado"
 
     @property
     def nombre_completo(self) -> str:

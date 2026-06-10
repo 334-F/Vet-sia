@@ -85,10 +85,10 @@ CREATE TABLE Usuarios (
     nombre          VARCHAR(100) NOT NULL,
     apellidos       VARCHAR(150) NOT NULL,
     email           VARCHAR(150) NOT NULL UNIQUE,
-    password_hash   VARCHAR(255) NOT NULL COMMENT 'Hash bcrypt con coste 12',
+    password_hash   VARCHAR(255) NULL COMMENT 'Hash bcrypt coste 12. NULL para invitados (compran sin cuenta)',
     telefono        VARCHAR(15),
     direccion       VARCHAR(200) COMMENT 'Dirección de contacto/facturación, no de envío',
-    rol             ENUM('cliente', 'admin') NOT NULL DEFAULT 'cliente',
+    rol             ENUM('cliente', 'admin', 'invitado') NOT NULL DEFAULT 'cliente',
     fecha_registro  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     activo          BOOLEAN NOT NULL DEFAULT TRUE,
     CONSTRAINT fk_usr_tipo FOREIGN KEY (tipo_cliente_id)
