@@ -182,9 +182,23 @@ def informe_stock_bajo():
 @admin_bp.route("/informes/ventas-por-mes", methods=["GET"])
 @admin_required
 def informe_ventas_mes():
-    """Resumen de ventas por mes (vista en BBDD)."""
-    sql = """
-        SELECT DATE_FORMAT(fecha, '%Y-%m') AS mes,
+    """
+    Resumen de ventas por mes.
+
+    La función para extraer 'AÑO-MES' de una fecha NO es estándar SQL:
+    MySQL usa DATE_FORMAT() y SQLite usa strftime(). Como en producción
+    corremos sobre SQLite y en local podemos usar MySQL, detectamos el
+    motor activo y elegimos la función adecuada. Así el mismo endpoint
+    funciona en ambos entornos sin reescribir la consulta.
+    """
+    dialecto = db.engine.dialect.name  # 'sqlite', 'mysql', etc.
+    if dialecto == "mysql":
+        expr_mes = "DATE_FORMAT(fecha, '%Y-%m')"
+    else:  # sqlite (producción) y compatibles
+        expr_mes = "strftime('%Y-%m', fecha)"
+
+    sql = f"""
+        SELECT {expr_mes} AS mes,
                COUNT(*) AS num_pedidos,
                SUM(total) AS ingresos
         FROM Pedidos

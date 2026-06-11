@@ -16,6 +16,7 @@
     <ul class="nav nav-tabs mb-3" id="adminTabs" role="tablist">
       <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-pedidos" type="button">Pedidos</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-productos" type="button">Productos</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-categorias" type="button">Categorías</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-resenas" type="button">Reseñas pendientes</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-promociones" type="button">Promociones</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-proveedores" type="button">Proveedores</button></li>
@@ -52,6 +53,25 @@
               </tr>
             </thead>
             <tbody id="tabla-productos"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- CATEGORÍAS -->
+      <div class="tab-pane fade" id="tab-categorias">
+        <div class="d-flex justify-content-between mb-3">
+          <h4>Categorías de productos</h4>
+          <button class="btn btn-vetesia" onclick="nuevaCategoria()">+ Nueva categoría</button>
+        </div>
+        <p class="text-muted small">Las categorías que crees aquí aparecen automáticamente en el catálogo y en el desplegable al dar de alta productos.</p>
+        <div class="admin-tabla">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th>ID</th><th>Nombre</th><th>Descripción</th><th>Categoría padre</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="tabla-categorias"></tbody>
           </table>
         </div>
       </div>
@@ -181,6 +201,28 @@
     </div>
   </div>
 
+  <!-- Modal categoría -->
+  <div class="modal fade" id="modal-categoria">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="modal-categoria-titulo">Categoría</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+        <form id="form-categoria">
+          <div class="modal-body">
+            <input type="hidden" id="cat-id">
+            <div class="mb-3"><label>Nombre *</label><input type="text" id="cat-nombre" class="form-control" required></div>
+            <div class="mb-3"><label>Descripción</label><textarea id="cat-descripcion" class="form-control" rows="2"></textarea></div>
+            <div class="mb-3"><label>Categoría padre (opcional)</label><select id="cat-padre" class="form-select"><option value="">— Ninguna (categoría principal) —</option></select></div>
+            <div class="mb-3"><label>URL imagen (opcional)</label><input type="text" id="cat-imagen" class="form-control"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Cancelar</button>
+            <button class="btn btn-vetesia" type="submit">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal promoción -->
   <div class="modal fade" id="modal-promocion">
     <div class="modal-dialog">
@@ -219,7 +261,7 @@
   <script src="/js/ui.js"></script>
   <script src="/js/layout.js"></script>
   <script>
-    let modalEstado, modalProducto, modalPromocion;
+    let modalEstado, modalProducto, modalPromocion, modalCategoria;
     let categoriasCache = [];
 
     document.addEventListener('DOMContentLoaded', async () => {
@@ -228,17 +270,10 @@
       modalEstado = new bootstrap.Modal(document.getElementById('modal-estado-pedido'));
       modalProducto = new bootstrap.Modal(document.getElementById('modal-producto'));
       modalPromocion = new bootstrap.Modal(document.getElementById('modal-promocion'));
+      modalCategoria = new bootstrap.Modal(document.getElementById('modal-categoria'));
 
-      // Cargar categorías para selects
-      try {
-        categoriasCache = await VETESIA.api.get('/categorias');
-        const selProd = document.getElementById('prod-categoria');
-        const selPromo = document.getElementById('promo-categoria');
-        categoriasCache.forEach(c => {
-          selProd.innerHTML += `<option value="${c.id}">${VETESIA.ui.escapeHtml(c.nombre)}</option>`;
-          selPromo.innerHTML += `<option value="${c.id}">${VETESIA.ui.escapeHtml(c.nombre)}</option>`;
-        });
-      } catch (e) { console.error(e); }
+      // Cargar categorías para los desplegables (producto, promoción, padre)
+      await refrescarCategoriasCache();
 
       cargarPedidos();
 
@@ -247,6 +282,7 @@
         btn.addEventListener('shown.bs.tab', e => {
           const target = e.target.dataset.bsTarget;
           if (target === '#tab-productos') cargarProductos();
+          if (target === '#tab-categorias') cargarCategorias();
           if (target === '#tab-resenas') cargarResenas();
           if (target === '#tab-promociones') cargarPromociones();
           if (target === '#tab-proveedores') cargarProveedores();
@@ -256,6 +292,7 @@
 
       document.getElementById('form-producto').addEventListener('submit', guardarProducto);
       document.getElementById('form-promocion').addEventListener('submit', guardarPromocion);
+      document.getElementById('form-categoria').addEventListener('submit', guardarCategoria);
     });
 
     // === PEDIDOS ===
@@ -373,6 +410,98 @@
         await VETESIA.api.delete(`/productos/${id}`);
         VETESIA.ui.toast('Producto desactivado', 'success');
         cargarProductos();
+      } catch (e) { VETESIA.ui.toast(e.message, 'error'); }
+    }
+
+    // === CATEGORÍAS ===
+    // Recarga la lista de categorías y repuebla TODOS los desplegables que
+    // dependen de ella (alta de producto, promoción por categoría y categoría
+    // padre). Así, al crear una categoría nueva, aparece al instante en todos
+    // los formularios sin recargar la página.
+    async function refrescarCategoriasCache() {
+      try {
+        categoriasCache = await VETESIA.api.get('/categorias');
+      } catch (e) { console.error(e); return; }
+      const selProd = document.getElementById('prod-categoria');
+      const selPromo = document.getElementById('promo-categoria');
+      const selPadre = document.getElementById('cat-padre');
+      if (selProd) selProd.innerHTML = '';
+      if (selPromo) selPromo.innerHTML = '<option value="">— Todas —</option>';
+      if (selPadre) selPadre.innerHTML = '<option value="">— Ninguna (categoría principal) —</option>';
+      categoriasCache.forEach(c => {
+        const opt = `<option value="${c.id}">${VETESIA.ui.escapeHtml(c.nombre)}</option>`;
+        if (selProd) selProd.innerHTML += opt;
+        if (selPromo) selPromo.innerHTML += opt;
+        if (selPadre) selPadre.innerHTML += opt;
+      });
+    }
+
+    async function cargarCategorias() {
+      try {
+        const cats = await VETESIA.api.get('/categorias');
+        const porId = Object.fromEntries(cats.map(c => [c.id, c.nombre]));
+        document.getElementById('tabla-categorias').innerHTML = cats.map(c => `
+          <tr>
+            <td>${c.id}</td>
+            <td><strong>${VETESIA.ui.escapeHtml(c.nombre)}</strong></td>
+            <td>${VETESIA.ui.escapeHtml(c.descripcion || '-')}</td>
+            <td>${c.categoria_padre_id ? VETESIA.ui.escapeHtml(porId[c.categoria_padre_id] || '#' + c.categoria_padre_id) : '-'}</td>
+            <td>
+              <button class="btn btn-sm btn-outline-secondary" onclick='editarCategoria(${JSON.stringify(c)})'>Editar</button>
+              <button class="btn btn-sm btn-outline-danger" onclick="bajaCategoria(${c.id})">Baja</button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (e) { VETESIA.ui.toast(e.message, 'error'); }
+    }
+
+    function nuevaCategoria() {
+      document.getElementById('form-categoria').reset();
+      document.getElementById('cat-id').value = '';
+      document.getElementById('modal-categoria-titulo').textContent = 'Nueva categoría';
+      modalCategoria.show();
+    }
+
+    function editarCategoria(c) {
+      document.getElementById('cat-id').value = c.id;
+      document.getElementById('cat-nombre').value = c.nombre || '';
+      document.getElementById('cat-descripcion').value = c.descripcion || '';
+      document.getElementById('cat-padre').value = c.categoria_padre_id || '';
+      document.getElementById('cat-imagen').value = c.imagen_url || '';
+      document.getElementById('modal-categoria-titulo').textContent = 'Editar categoría';
+      modalCategoria.show();
+    }
+
+    async function guardarCategoria(e) {
+      e.preventDefault();
+      const id = document.getElementById('cat-id').value;
+      const padre = document.getElementById('cat-padre').value;
+      const payload = {
+        nombre: document.getElementById('cat-nombre').value.trim(),
+        descripcion: document.getElementById('cat-descripcion').value.trim() || null,
+        categoria_padre_id: padre ? parseInt(padre, 10) : null,
+        imagen_url: document.getElementById('cat-imagen').value.trim() || null,
+      };
+      try {
+        if (id) {
+          await VETESIA.api.patch(`/categorias/${id}`, payload);
+        } else {
+          await VETESIA.api.post('/categorias', payload);
+        }
+        VETESIA.ui.toast('Categoría guardada', 'success');
+        modalCategoria.hide();
+        await refrescarCategoriasCache();
+        cargarCategorias();
+      } catch (err) { VETESIA.ui.toast(err.message, 'error'); }
+    }
+
+    async function bajaCategoria(id) {
+      if (!confirm('¿Dar de baja esta categoría? Los productos asociados no se borran, pero la categoría dejará de mostrarse.')) return;
+      try {
+        await VETESIA.api.delete(`/categorias/${id}`);
+        VETESIA.ui.toast('Categoría desactivada', 'success');
+        await refrescarCategoriasCache();
+        cargarCategorias();
       } catch (e) { VETESIA.ui.toast(e.message, 'error'); }
     }
 
