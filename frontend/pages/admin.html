@@ -104,12 +104,14 @@
       <div class="tab-pane fade" id="tab-proveedores">
         <div class="d-flex justify-content-between mb-3">
           <h4>Proveedores</h4>
+          <button class="btn btn-vetesia" onclick="nuevoProveedor()">+ Nuevo proveedor</button>
         </div>
+        <p class="text-muted small">Gestiona los proveedores, los productos que suministra cada uno y los pedidos de reposición de stock. Al marcar un pedido de reposición como <strong>recibido</strong>, el stock del producto se incrementa automáticamente.</p>
         <div class="admin-tabla">
           <table class="table table-hover mb-0">
             <thead>
               <tr>
-                <th>Nombre</th><th>Contacto</th><th>Email</th><th>Teléfono</th><th>Activo</th>
+                <th>Nombre</th><th>Contacto</th><th>Email</th><th>Teléfono</th><th>Activo</th><th></th>
               </tr>
             </thead>
             <tbody id="tabla-proveedores"></tbody>
@@ -223,6 +225,81 @@
     </div>
   </div>
 
+  <!-- Modal proveedor (alta/edición) -->
+  <div class="modal fade" id="modal-proveedor">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="modal-proveedor-titulo">Proveedor</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+        <form id="form-proveedor">
+          <div class="modal-body">
+            <input type="hidden" id="prov-id">
+            <div class="mb-3"><label>Nombre *</label><input type="text" id="prov-nombre" class="form-control" required></div>
+            <div class="mb-3"><label>Persona de contacto</label><input type="text" id="prov-contacto" class="form-control"></div>
+            <div class="row">
+              <div class="col-md-6 mb-3"><label>Email</label><input type="email" id="prov-email" class="form-control"></div>
+              <div class="col-md-6 mb-3"><label>Teléfono</label><input type="text" id="prov-telefono" class="form-control"></div>
+            </div>
+            <div class="mb-3"><label>Dirección</label><input type="text" id="prov-direccion" class="form-control"></div>
+            <div class="mb-3"><label>Condiciones</label><input type="text" id="prov-condiciones" class="form-control" placeholder="Ej: Pago a 30 días"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Cancelar</button>
+            <button class="btn btn-vetesia" type="submit">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal productos del proveedor -->
+  <div class="modal fade" id="modal-prov-productos">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Productos de <span id="pp-prov-nombre"></span></h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <table class="table table-sm">
+            <thead><tr><th>Producto</th><th>Precio compra</th><th>Plazo (días)</th><th>Principal</th></tr></thead>
+            <tbody id="tabla-prov-productos"></tbody>
+          </table>
+          <hr>
+          <h6>Asociar un producto</h6>
+          <form id="form-asociar-producto" class="row g-2 align-items-end">
+            <div class="col-md-5"><label class="small">Producto</label><select id="pp-producto" class="form-select"></select></div>
+            <div class="col-md-3"><label class="small">Precio compra (€)</label><input type="number" step="0.01" id="pp-precio" class="form-control" required></div>
+            <div class="col-md-2"><label class="small">Plazo (días)</label><input type="number" id="pp-plazo" class="form-control"></div>
+            <div class="col-md-2"><button class="btn btn-vetesia w-100" type="submit">Asociar</button></div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal pedidos de reposición -->
+  <div class="modal fade" id="modal-reposicion">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Reposición de stock — <span id="rep-prov-nombre"></span></h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <h6>Nuevo pedido de reposición</h6>
+          <form id="form-add-linea-rep" class="row g-2 align-items-end mb-2">
+            <div class="col-md-5"><label class="small">Producto</label><select id="rep-producto" class="form-select"></select></div>
+            <div class="col-md-3"><label class="small">Cantidad</label><input type="number" id="rep-cantidad" class="form-control" min="1" value="1"></div>
+            <div class="col-md-2"><label class="small">Precio ud. (€)</label><input type="number" step="0.01" id="rep-precio" class="form-control"></div>
+            <div class="col-md-2"><button class="btn btn-outline-secondary w-100" type="submit">+ Línea</button></div>
+          </form>
+          <table class="table table-sm"><tbody id="rep-lineas"></tbody></table>
+          <button class="btn btn-vetesia mb-3" id="btn-crear-reposicion" onclick="crearReposicion()" disabled>Crear pedido de reposición</button>
+          <hr>
+          <h6>Pedidos de reposición de este proveedor</h6>
+          <table class="table table-sm">
+            <thead><tr><th>ID</th><th>Fecha</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+            <tbody id="tabla-pedidos-prov"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal promoción -->
   <div class="modal fade" id="modal-promocion">
     <div class="modal-dialog">
@@ -262,7 +339,11 @@
   <script src="/js/layout.js"></script>
   <script>
     let modalEstado, modalProducto, modalPromocion, modalCategoria;
+    let modalProveedor, modalProvProductos, modalReposicion;
     let categoriasCache = [];
+    let productosCache = [];
+    let repLineasTmp = [];      // líneas del pedido de reposición en construcción
+    let provActual = null;      // proveedor seleccionado en los modales
 
     document.addEventListener('DOMContentLoaded', async () => {
       if (!VETESIA.auth.requireAdmin()) return;
@@ -271,6 +352,9 @@
       modalProducto = new bootstrap.Modal(document.getElementById('modal-producto'));
       modalPromocion = new bootstrap.Modal(document.getElementById('modal-promocion'));
       modalCategoria = new bootstrap.Modal(document.getElementById('modal-categoria'));
+      modalProveedor = new bootstrap.Modal(document.getElementById('modal-proveedor'));
+      modalProvProductos = new bootstrap.Modal(document.getElementById('modal-prov-productos'));
+      modalReposicion = new bootstrap.Modal(document.getElementById('modal-reposicion'));
 
       // Cargar categorías para los desplegables (producto, promoción, padre)
       await refrescarCategoriasCache();
@@ -293,6 +377,9 @@
       document.getElementById('form-producto').addEventListener('submit', guardarProducto);
       document.getElementById('form-promocion').addEventListener('submit', guardarPromocion);
       document.getElementById('form-categoria').addEventListener('submit', guardarCategoria);
+      document.getElementById('form-proveedor').addEventListener('submit', guardarProveedor);
+      document.getElementById('form-asociar-producto').addEventListener('submit', asociarProductoProveedor);
+      document.getElementById('form-add-linea-rep').addEventListener('submit', addLineaReposicion);
     });
 
     // === PEDIDOS ===
@@ -608,8 +695,185 @@
             <td>${VETESIA.ui.escapeHtml(p.email || '-')}</td>
             <td>${VETESIA.ui.escapeHtml(p.telefono || '-')}</td>
             <td>${p.activo ? '✅' : '❌'}</td>
+            <td class="text-nowrap">
+              <button class="btn btn-sm btn-outline-secondary" onclick='editarProveedor(${JSON.stringify(p)})'>Editar</button>
+              <button class="btn btn-sm btn-outline-primary" onclick='verProductosProveedor(${JSON.stringify(p)})'>Productos</button>
+              <button class="btn btn-sm btn-outline-success" onclick='abrirReposicion(${JSON.stringify(p)})'>Reposición</button>
+              <button class="btn btn-sm btn-outline-danger" onclick="bajaProveedor(${p.id})">Baja</button>
+            </td>
           </tr>
         `).join('');
+      } catch (e) { VETESIA.ui.toast(e.message, 'error'); }
+    }
+
+    // Carga la lista de productos (para los desplegables de asociar/reponer)
+    async function getProductos() {
+      if (productosCache.length === 0) {
+        productosCache = await VETESIA.api.get('/productos');
+      }
+      return productosCache;
+    }
+    function optsProductos() {
+      return productosCache.map(p => `<option value="${p.id}" data-precio="${p.precio_base}">${VETESIA.ui.escapeHtml(p.nombre)}</option>`).join('');
+    }
+
+    // --- CRUD proveedor ---
+    function nuevoProveedor() {
+      document.getElementById('form-proveedor').reset();
+      document.getElementById('prov-id').value = '';
+      document.getElementById('modal-proveedor-titulo').textContent = 'Nuevo proveedor';
+      modalProveedor.show();
+    }
+    function editarProveedor(p) {
+      document.getElementById('prov-id').value = p.id;
+      document.getElementById('prov-nombre').value = p.nombre || '';
+      document.getElementById('prov-contacto').value = p.persona_contacto || '';
+      document.getElementById('prov-email').value = p.email || '';
+      document.getElementById('prov-telefono').value = p.telefono || '';
+      document.getElementById('prov-direccion').value = p.direccion || '';
+      document.getElementById('prov-condiciones').value = p.condiciones || '';
+      document.getElementById('modal-proveedor-titulo').textContent = 'Editar proveedor';
+      modalProveedor.show();
+    }
+    async function guardarProveedor(e) {
+      e.preventDefault();
+      const id = document.getElementById('prov-id').value;
+      const payload = {
+        nombre: document.getElementById('prov-nombre').value.trim(),
+        persona_contacto: document.getElementById('prov-contacto').value.trim() || null,
+        email: document.getElementById('prov-email').value.trim() || null,
+        telefono: document.getElementById('prov-telefono').value.trim() || null,
+        direccion: document.getElementById('prov-direccion').value.trim() || null,
+        condiciones: document.getElementById('prov-condiciones').value.trim() || null,
+      };
+      try {
+        if (id) { await VETESIA.api.patch(`/proveedores/${id}`, payload); }
+        else { await VETESIA.api.post('/proveedores', payload); }
+        VETESIA.ui.toast('Proveedor guardado', 'success');
+        modalProveedor.hide();
+        cargarProveedores();
+      } catch (err) { VETESIA.ui.toast(err.message, 'error'); }
+    }
+    async function bajaProveedor(id) {
+      if (!confirm('¿Dar de baja este proveedor?')) return;
+      try {
+        await VETESIA.api.delete(`/proveedores/${id}`);
+        VETESIA.ui.toast('Proveedor desactivado', 'success');
+        cargarProveedores();
+      } catch (e) { VETESIA.ui.toast(e.message, 'error'); }
+    }
+
+    // --- Productos del proveedor ---
+    async function verProductosProveedor(p) {
+      provActual = p;
+      document.getElementById('pp-prov-nombre').textContent = p.nombre;
+      try {
+        await getProductos();
+        document.getElementById('pp-producto').innerHTML = optsProductos();
+        await pintarProductosProveedor();
+        modalProvProductos.show();
+      } catch (e) { VETESIA.ui.toast(e.message, 'error'); }
+    }
+    async function pintarProductosProveedor() {
+      const det = await VETESIA.api.get(`/proveedores/${provActual.id}`);
+      const filas = (det.productos || []).map(pp => `
+        <tr>
+          <td>${VETESIA.ui.escapeHtml(pp.producto_nombre || '#'+pp.producto_id)}</td>
+          <td>${VETESIA.ui.precio(pp.precio_compra)}</td>
+          <td>${pp.plazo_entrega_dias ?? '-'}</td>
+          <td>${pp.es_principal ? '⭐' : ''}</td>
+        </tr>`).join('');
+      document.getElementById('tabla-prov-productos').innerHTML = filas || '<tr><td colspan="4" class="text-muted">Sin productos asociados.</td></tr>';
+    }
+    async function asociarProductoProveedor(e) {
+      e.preventDefault();
+      const payload = {
+        producto_id: parseInt(document.getElementById('pp-producto').value, 10),
+        precio_compra: parseFloat(document.getElementById('pp-precio').value),
+        plazo_entrega_dias: parseInt(document.getElementById('pp-plazo').value, 10) || null,
+      };
+      try {
+        await VETESIA.api.post(`/proveedores/${provActual.id}/productos`, payload);
+        VETESIA.ui.toast('Producto asociado', 'success');
+        document.getElementById('form-asociar-producto').reset();
+        pintarProductosProveedor();
+      } catch (err) { VETESIA.ui.toast(err.message, 'error'); }
+    }
+
+    // --- Pedidos de reposición ---
+    async function abrirReposicion(p) {
+      provActual = p;
+      repLineasTmp = [];
+      document.getElementById('rep-prov-nombre').textContent = p.nombre;
+      try {
+        await getProductos();
+        document.getElementById('rep-producto').innerHTML = optsProductos();
+        // autocompletar precio sugerido con el precio base del producto
+        document.getElementById('rep-producto').onchange = function () {
+          const opt = this.options[this.selectedIndex];
+          document.getElementById('rep-precio').value = opt ? (parseFloat(opt.dataset.precio) * 0.6).toFixed(2) : '';
+        };
+        document.getElementById('rep-producto').dispatchEvent(new Event('change'));
+        pintarLineasReposicion();
+        await pintarPedidosProveedor();
+        modalReposicion.show();
+      } catch (e) { VETESIA.ui.toast(e.message, 'error'); }
+    }
+    function addLineaReposicion(e) {
+      e.preventDefault();
+      const sel = document.getElementById('rep-producto');
+      const id = parseInt(sel.value, 10);
+      const nombre = sel.options[sel.selectedIndex].text;
+      const cantidad = parseInt(document.getElementById('rep-cantidad').value, 10);
+      const precio = parseFloat(document.getElementById('rep-precio').value);
+      if (!id || cantidad <= 0 || isNaN(precio)) { VETESIA.ui.toast('Revisa los datos de la línea', 'error'); return; }
+      repLineasTmp.push({ producto_id: id, producto_nombre: nombre, cantidad, precio_unitario: precio });
+      pintarLineasReposicion();
+    }
+    function pintarLineasReposicion() {
+      const cont = document.getElementById('rep-lineas');
+      cont.innerHTML = repLineasTmp.map((l, i) => `
+        <tr>
+          <td>${VETESIA.ui.escapeHtml(l.producto_nombre)}</td>
+          <td>${l.cantidad} ud.</td>
+          <td>${VETESIA.ui.precio(l.precio_unitario)}</td>
+          <td><button class="btn btn-sm btn-link text-danger p-0" onclick="quitarLineaRep(${i})">quitar</button></td>
+        </tr>`).join('');
+      document.getElementById('btn-crear-reposicion').disabled = repLineasTmp.length === 0;
+    }
+    function quitarLineaRep(i) { repLineasTmp.splice(i, 1); pintarLineasReposicion(); }
+    async function crearReposicion() {
+      try {
+        await VETESIA.api.post('/proveedores/pedidos', {
+          proveedor_id: provActual.id,
+          lineas: repLineasTmp.map(l => ({ producto_id: l.producto_id, cantidad: l.cantidad, precio_unitario: l.precio_unitario })),
+        });
+        VETESIA.ui.toast('Pedido de reposición creado', 'success');
+        repLineasTmp = [];
+        pintarLineasReposicion();
+        pintarPedidosProveedor();
+      } catch (e) { VETESIA.ui.toast(e.message, 'error'); }
+    }
+    async function pintarPedidosProveedor() {
+      const todos = await VETESIA.api.get('/proveedores/pedidos');
+      const mios = todos.filter(pp => pp.proveedor_id === provActual.id);
+      document.getElementById('tabla-pedidos-prov').innerHTML = mios.map(pp => `
+        <tr>
+          <td>${pp.id}</td>
+          <td>${(pp.fecha || '').substring(0,10)}</td>
+          <td>${VETESIA.ui.precio(pp.total)}</td>
+          <td>${VETESIA.ui.escapeHtml(pp.estado)}</td>
+          <td>${pp.estado !== 'recibido' && pp.estado !== 'cancelado'
+                ? `<button class="btn btn-sm btn-success" onclick="marcarRecibido(${pp.id})">Marcar recibido (suma stock)</button>`
+                : ''}</td>
+        </tr>`).join('') || '<tr><td colspan="5" class="text-muted">Sin pedidos de reposición.</td></tr>';
+    }
+    async function marcarRecibido(id) {
+      if (!confirm('Al marcar como recibido se sumará el stock de los productos. ¿Continuar?')) return;
+      try {
+        await VETESIA.api.patch(`/proveedores/pedidos/${id}/estado`, { estado: 'recibido' });
+        VETESIA.ui.toast('Pedido recibido. Stock actualizado.', 'success');
+        pintarPedidosProveedor();
       } catch (e) { VETESIA.ui.toast(e.message, 'error'); }
     }
 
